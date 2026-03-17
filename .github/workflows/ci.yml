@@ -32,7 +32,9 @@ jobs:
         run: black --check .
 
       - name: Unit tests
-        run: pytest -q
+        run: |
+            export PYTHONPATH=$PWD   
+            pytest -q
 
       - name: Run smoke suite (API)
         run: |
