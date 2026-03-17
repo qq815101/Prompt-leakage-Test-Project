@@ -38,6 +38,7 @@ jobs:
 
       - name: Run smoke suite (API)
         run: |
+          export PYTHONPATH=$PWD
           python scripts/run_suite.py --suite data/suites/smoke.json --out artifacts/smoke.jsonl
           python src/report.py --in artifacts/smoke.jsonl --out artifacts/report.json
 
