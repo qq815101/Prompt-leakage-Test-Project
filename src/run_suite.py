@@ -1,12 +1,13 @@
 import argparse
 import json
 import os
+
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-from src.utils import now_iso, stable_hash, make_canary
-from src.openai_client import OpenAIChatClient
 from src.detector import detect
+from src.openai_client import OpenAIChatClient
+from src.utils import make_canary, now_iso, stable_hash
 
 
 def main():

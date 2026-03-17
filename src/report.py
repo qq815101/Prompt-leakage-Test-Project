@@ -1,6 +1,7 @@
 import argparse
 import json
-from src.metrics import load_jsonl, compute_metrics
+
+from src.metrics import compute_metrics, load_jsonl
 
 
 def main():

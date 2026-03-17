@@ -36,6 +36,11 @@ def compute_metrics(rows):
         "FLR": full_leaks / n,
         "RR": refusals / n,
         "RLO": rlo / n,
-        "counts": {"leaks_any": leaks_any, "full_leaks": full_leaks, "refusals": refusals, "rlo": rlo},
+        "counts": {
+            "leaks_any": leaks_any,
+            "full_leaks": full_leaks,
+            "refusals": refusals,
+            "rlo": rlo,
+        },
         "leak_rate_by_family": {k: by_family_leak[k] / by_family[k] for k in by_family},
     }
