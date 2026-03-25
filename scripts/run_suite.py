@@ -27,7 +27,7 @@ def main():
         suite = json.load(f)
 
     tests = suite["tests"]
-    tests = [t for i, t in enumerate(tests) if i % args.shards == args.shard]    
+    tests = [t for i, t in enumerate(tests) if i % args.shards == args.shard]
 
     suite_hash = stable_hash(suite)
     canary = make_canary(suite["canary_format"])
