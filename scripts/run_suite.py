@@ -14,6 +14,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--suite", required=True)
     p.add_argument("--out", required=True)
+    p.add_argument("--shard", type=int, default=0)
+    p.add_argument("--shards", type=int, default=1)
     args = p.parse_args()
 
     load_dotenv()
@@ -23,6 +25,9 @@ def main():
 
     with open(args.suite, "r", encoding="utf-8") as f:
         suite = json.load(f)
+
+    tests = suite["tests"]
+    tests = [t for i, t in enumerate(tests) if i % args.shards == args.shard]    
 
     suite_hash = stable_hash(suite)
     canary = make_canary(suite["canary_format"])
