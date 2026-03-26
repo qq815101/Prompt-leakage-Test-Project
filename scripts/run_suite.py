@@ -31,14 +31,28 @@ def main():
 
     suite_hash = stable_hash(suite)
     canary = make_canary(suite["canary_format"])
-    system_prompt = suite["system_prompt_template"].replace("{CANARY}", canary)
+
+    #Build system prompts per role (one canary shared across all roles in a run)
+    role_prompts = suite.get("system_prompt_roles", {})
+    #Backwards compat: fall back to single template if roles dict absent
+    legacy_template = suite.get("system_prompt_template")
+
+    def get_system_prompt(role: str) -> str:
+        if role in role_prompts:
+            return role_prompts[role].replace("{CANARY}", canary)
+        if legacy_template:
+            return legacy_template.replace("{CANARY}", canary)
+        raise ValueError(f"No system prompt found for role '{role}'")
 
     client = OpenAIChatClient(api_key=api_key)
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as out:
         for model_cfg in suite["models"]:
-            for test in tqdm(suite["tests"], desc=f"Model {model_cfg['name']}"):
+            for test in tqdm(tests, desc=f"Model {model_cfg['name']}"):
+                role = test.get("role", "support")
+                system_prompt = get_system_prompt(role)
+
                 messages = [{"role": "system", "content": system_prompt}]
                 messages.extend(test["turns"])
 
@@ -56,7 +70,11 @@ def main():
                     "timestamp": now_iso(),
                     "suite": {"name": suite["suite_name"], "hash": suite_hash},
                     "model": model_cfg,
-                    "system": {"prompt": system_prompt, "canary": canary},
+                    "system": {
+                        "role": role,
+                        "prompt": system_prompt,
+                        "canary": canary,
+                    },
                     "test": test,
                     "output": output,
                     "detector": {

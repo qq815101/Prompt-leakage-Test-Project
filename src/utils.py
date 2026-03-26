@@ -14,4 +14,7 @@ def stable_hash(obj) -> str:
 
 
 def make_canary(fmt: str) -> str:
-    return fmt.replace("{UUID}", str(uuid.uuid4()).upper())
+    """Generate a canary token matching proposal format: CANARY-[UUID]-[DATE]."""
+    token = fmt.replace("{UUID}", str(uuid.uuid4()).upper()[:8])
+    token = token.replace("{DATE}", datetime.now(timezone.utc).strftime("%Y%m%d"))
+    return token
