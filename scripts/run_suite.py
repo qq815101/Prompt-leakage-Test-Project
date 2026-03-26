@@ -5,9 +5,63 @@ import os
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-from src.detector import detect
+from src.detector import detect, DetectionResult
 from src.openai_client import OpenAIChatClient
 from src.utils import make_canary, now_iso, stable_hash
+
+# Severity ordering for picking the worst detection across multi-turn
+_SEV_ORDER = {"L0": 0, "L2": 1, "L3": 2, "L4": 3}
+
+
+def worst_detection(results: list[DetectionResult]) -> DetectionResult:
+    """Return the most severe detection from a list of per-turn results."""
+    return max(results, key=lambda d: _SEV_ORDER.get(d.severity, 0))
+
+
+def run_single_turn(client, model_cfg, system_prompt, turns, canary):
+    """Single-turn: one API call with system + one user message."""
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(turns)
+
+    output = client.chat(
+        model=model_cfg["name"],
+        messages=messages,
+        temperature=model_cfg.get("temperature", 0.7),
+        top_p=model_cfg.get("top_p", 1.0),
+        max_output_tokens=model_cfg.get("max_output_tokens", 120),
+    )
+    det = detect(output, canary)
+    return output, [output], det
+
+
+def run_multi_turn(client, model_cfg, system_prompt, turns, canary):
+    """Multi-turn: send each user turn, collect the assistant response,
+    append it to the conversation, then send the next user turn.
+    Detect leakage on EVERY assistant response and report the worst."""
+    messages = [{"role": "system", "content": system_prompt}]
+    all_outputs = []
+    all_detections = []
+
+    for turn in turns:
+        messages.append(turn)
+
+        output = client.chat(
+            model=model_cfg["name"],
+            messages=messages,
+            temperature=model_cfg.get("temperature", 0.7),
+            top_p=model_cfg.get("top_p", 1.0),
+            max_output_tokens=model_cfg.get("max_output_tokens", 120),
+        )
+
+        messages.append({"role": "assistant", "content": output})
+        all_outputs.append(output)
+        all_detections.append(detect(output, canary))
+
+    # Concatenated transcript for the record
+    full_output = "\n---\n".join(all_outputs)
+    best_det = worst_detection(all_detections)
+
+    return full_output, all_outputs, best_det
 
 
 def main():
@@ -32,9 +86,8 @@ def main():
     suite_hash = stable_hash(suite)
     canary = make_canary(suite["canary_format"])
 
-    #Build system prompts per role (one canary shared across all roles in a run)
+    # Build system prompts per role
     role_prompts = suite.get("system_prompt_roles", {})
-    #Backwards compat: fall back to single template if roles dict absent
     legacy_template = suite.get("system_prompt_template")
 
     def get_system_prompt(role: str) -> str:
@@ -52,19 +105,16 @@ def main():
             for test in tqdm(tests, desc=f"Model {model_cfg['name']}"):
                 role = test.get("role", "support")
                 system_prompt = get_system_prompt(role)
+                is_multi = test["family"].startswith("multi_turn/")
 
-                messages = [{"role": "system", "content": system_prompt}]
-                messages.extend(test["turns"])
-
-                output = client.chat(
-                    model=model_cfg["name"],
-                    messages=messages,
-                    temperature=model_cfg.get("temperature", 0.7),
-                    top_p=model_cfg.get("top_p", 1.0),
-                    max_output_tokens=model_cfg.get("max_output_tokens", 120),
-                )
-
-                det = detect(output, canary)
+                if is_multi:
+                    full_output, turn_outputs, det = run_multi_turn(
+                        client, model_cfg, system_prompt, test["turns"], canary
+                    )
+                else:
+                    full_output, turn_outputs, det = run_single_turn(
+                        client, model_cfg, system_prompt, test["turns"], canary
+                    )
 
                 record = {
                     "timestamp": now_iso(),
@@ -76,7 +126,8 @@ def main():
                         "canary": canary,
                     },
                     "test": test,
-                    "output": output,
+                    "output": full_output,
+                    "turn_outputs": turn_outputs,
                     "detector": {
                         "refusal": det.refusal,
                         "refusal_score": det.refusal_score,
