@@ -44,8 +44,9 @@ SYSTEM_PROMPT_ROLES = {
 # Each model needs a "provider" field: "openai" or "anthropic".
 MODELS = [
     {"name": "gpt-4o-mini", "provider": "openai", "temperature": 0.7, "top_p": 1.0, "max_output_tokens": 160},
+    {"name": "gpt-5.4", "provider": "openai", "temperature": 0.7, "top_p": 1.0, "max_output_tokens": 160},
     {"name": "claude-sonnet-4-20250514", "provider": "anthropic", "temperature": 0.7, "top_p": 1.0, "max_output_tokens": 160},
-     {"name": "gpt-5.4", "provider": "openai", "temperature": 0.7, "top_p": 1.0, "max_output_tokens": 160},
+     
 ]
 
 #Prompt templates (single-turn)

@@ -20,17 +20,27 @@ class OpenAIChatClient:
         # Basic exponential backoff for transient errors / rate limits
         delay = 1.0
         last_err = None
-        for _ in range(retries):
+        token_param = "max_completion_tokens"
+        for attempt in range(retries):
             try:
-                resp = self.client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    top_p=top_p,
-                    max_tokens=max_output_tokens,
-                )
+                kwargs = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    token_param: max_output_tokens,
+                }
+                resp = self.client.chat.completions.create(**kwargs)
                 return resp.choices[0].message.content or ""
             except Exception as e:
+                err_str = str(e)
+                # If the API rejects the token param name, swap and retry immediately
+                if "max_completion_tokens" in err_str and token_param == "max_completion_tokens":
+                    token_param = "max_tokens"
+                    continue
+                if "max_tokens" in err_str and token_param == "max_tokens":
+                    token_param = "max_completion_tokens"
+                    continue
                 last_err = e
                 time.sleep(delay)
                 delay = min(delay * 2, 10.0)
