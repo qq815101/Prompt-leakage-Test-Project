@@ -6,7 +6,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from src.metrics import compare_runs, compute_metrics, load_jsonl
+from .metrics import compare_runs, compute_metrics, load_jsonl
 
 
 def plot_summary_bars(metrics, out_dir):
