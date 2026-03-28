@@ -7,19 +7,17 @@ from tqdm import tqdm
 
 from src.detector import detect, DetectionResult
 from src.openai_client import OpenAIChatClient
+from src.anthropic_client import AnthropicChatClient
 from src.utils import make_canary, now_iso, stable_hash
 
-# Severity ordering for picking the worst detection across multi-turn
 _SEV_ORDER = {"L0": 0, "L2": 1, "L3": 2, "L4": 3}
 
 
 def worst_detection(results: list[DetectionResult]) -> DetectionResult:
-    """Return the most severe detection from a list of per-turn results."""
     return max(results, key=lambda d: _SEV_ORDER.get(d.severity, 0))
 
 
 def run_single_turn(client, model_cfg, system_prompt, turns, canary):
-    """Single-turn: one API call with system + one user message."""
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(turns)
 
@@ -35,9 +33,6 @@ def run_single_turn(client, model_cfg, system_prompt, turns, canary):
 
 
 def run_multi_turn(client, model_cfg, system_prompt, turns, canary):
-    """Multi-turn: send each user turn, collect the assistant response,
-    append it to the conversation, then send the next user turn.
-    Detect leakage on EVERY assistant response and report the worst."""
     messages = [{"role": "system", "content": system_prompt}]
     all_outputs = []
     all_detections = []
@@ -57,11 +52,24 @@ def run_multi_turn(client, model_cfg, system_prompt, turns, canary):
         all_outputs.append(output)
         all_detections.append(detect(output, canary))
 
-    # Concatenated transcript for the record
     full_output = "\n---\n".join(all_outputs)
     best_det = worst_detection(all_detections)
-
     return full_output, all_outputs, best_det
+
+
+def build_clients():
+    """Build one client per provider from available env vars."""
+    clients = {}
+
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openai_key:
+        clients["openai"] = OpenAIChatClient(api_key=openai_key)
+
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        clients["anthropic"] = AnthropicChatClient(api_key=anthropic_key)
+
+    return clients
 
 
 def main():
@@ -73,9 +81,6 @@ def main():
     args = p.parse_args()
 
     load_dotenv()
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("Missing OPENAI_API_KEY (set locally in .env or via CI secret).")
 
     with open(args.suite, "r", encoding="utf-8") as f:
         suite = json.load(f)
@@ -86,7 +91,6 @@ def main():
     suite_hash = stable_hash(suite)
     canary = make_canary(suite["canary_format"])
 
-    # Build system prompts per role
     role_prompts = suite.get("system_prompt_roles", {})
     legacy_template = suite.get("system_prompt_template")
 
@@ -97,12 +101,28 @@ def main():
             return legacy_template.replace("{CANARY}", canary)
         raise ValueError(f"No system prompt found for role '{role}'")
 
-    client = OpenAIChatClient(api_key=api_key)
+    clients = build_clients()
+    if not clients:
+        raise RuntimeError(
+            "No API keys found. Set OPENAI_API_KEY and/or ANTHROPIC_API_KEY in .env"
+        )
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as out:
         for model_cfg in suite["models"]:
-            for test in tqdm(tests, desc=f"Model {model_cfg['name']}"):
+            provider = model_cfg.get("provider", "openai")
+
+            if provider not in clients:
+                print(
+                    f"⚠️  Skipping {model_cfg['name']}: "
+                    f"no API key for provider '{provider}'. "
+                    f"Set {provider.upper()}_API_KEY in .env to enable."
+                )
+                continue
+
+            client = clients[provider]
+
+            for test in tqdm(tests, desc=f"{model_cfg['name']}"):
                 role = test.get("role", "support")
                 system_prompt = get_system_prompt(role)
                 is_multi = test["family"].startswith("multi_turn/")
